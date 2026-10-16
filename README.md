@@ -21,8 +21,9 @@ An in-game addon manager for WoW 1.12 (vanilla) clients that don't ship one of t
 
 ### Minimap button drawer
 - A single minimap icon collects other addons' stray minimap buttons into a flyout drawer, instead of leaving a dozen icons cluttering the ring.
-  - **Left-click**: open the addon list.
-  - **Right-click**: open/close the drawer.
+  - **Left-click**: open/close the drawer.
+  - **Right-click**: open the addon list.
+  - **Ctrl+Left-drag**: move the button around the minimap.
 - The drawer's grid shape scales with how many icons there actually are — a tight single row for 3 icons, a clean 8×2 block for 16, instead of a fixed-width grid that looks sparse or lopsided depending on count.
 - The **Settings** tab lists every icon currently in the drawer, with a **Release** button to put one back on the minimap if it doesn't belong there, and a **Recollect** button to undo that.
 

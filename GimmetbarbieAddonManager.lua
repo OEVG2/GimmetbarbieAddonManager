@@ -1282,8 +1282,14 @@ function AM.CreateMinimapButton()
     border:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
+    -- Ctrl+Left-drag moves the button around the minimap ring. A plain
+    -- left-press no longer starts a drag, and the click that ends a Ctrl-drag
+    -- is swallowed so moving the button doesn't also open the drawer.
     btn:SetScript("OnMouseDown", function()
-        if arg1 == "LeftButton" then this.dragging = true end
+        if arg1 == "LeftButton" and IsControlKeyDown() then
+            this.dragging = true
+            this.suppressClick = true
+        end
     end)
     btn:SetScript("OnMouseUp", function() this.dragging = false end)
 
@@ -1299,18 +1305,23 @@ function AM.CreateMinimapButton()
     end)
 
     btn:SetScript("OnClick", function()
+        if this.suppressClick then
+            this.suppressClick = false
+            return
+        end
         if arg1 == "LeftButton" then
-            AM.ToggleMainFrame()
-        elseif arg1 == "RightButton" then
             AM.ToggleDrawer()
+        elseif arg1 == "RightButton" then
+            AM.ToggleMainFrame()
         end
     end)
 
     btn:SetScript("OnEnter", function()
         GameTooltip:SetOwner(this, "ANCHOR_LEFT")
         GameTooltip:SetText("Gimmetbarbie Addon Manager")
-        GameTooltip:AddLine("Left-click: addon list", 1, 1, 1)
-        GameTooltip:AddLine("Right-click: minimap button drawer", 1, 1, 1)
+        GameTooltip:AddLine("Left-click: minimap button drawer", 1, 1, 1)
+        GameTooltip:AddLine("Right-click: addon list", 1, 1, 1)
+        GameTooltip:AddLine("Ctrl+Left-drag: move this button", 1, 1, 1)
         GameTooltip:Show()
     end)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
