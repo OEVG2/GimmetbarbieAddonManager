@@ -9,6 +9,14 @@ An in-game addon manager for WoW 1.12 (vanilla) clients that don't ship one of t
 - Click an addon's state button to toggle it. Like the character-select AddOns screen, the client only reads enable/disable state at login — changes need a `/reloadui`, which the window reminds you of with a banner and a per-row `*reload needed*` marker.
 - Addons that fail to load for another reason (missing dependency, wrong interface version, etc.) show the reason inline.
 
+### Profiles
+- Four numbered slots next to the **Reload UI** button save which addons are enabled, so you can switch between setups (e.g. a raid profile with some addons off) in one click.
+  - **Shift+click** a number: save the current enabled/disabled setup into that slot.
+  - **Click**: load the slot (then Reload UI to apply, as with any enable/disable change).
+  - **Ctrl+click**: load the slot and reload straight away.
+- The number turns green when your current setup matches that profile, and is grey while the slot is empty. Hover a number to see its name and how many addons it enables.
+- Name a slot with `/am profile name 1 Raid`. Addons you install after saving a profile aren't touched when you load it, and the manager itself is never disabled by a profile.
+
 ### Quick-launch commands (auto-discovered)
 - Addons register slash commands as plain globals (`SLASH_X1 = "/x"`, `SlashCmdList["X"] = ...`), which are visible to every other addon via `_G`.
 - Gimmetbarbie watches each addon's `ADDON_LOADED` event and diffs `_G` for new `SLASH_*` entries that appear during that addon's load, attributing them automatically. A newly installed addon gets a quick-launch button with **zero manual setup**.
@@ -33,6 +41,11 @@ An in-game addon manager for WoW 1.12 (vanilla) clients that don't ship one of t
 /am              toggle the addon list window
 /am reload       reloads the UI (applies pending enable/disable changes)
 /am rescan       force a minimap-button collection pass
+/am profile      list the profile slots
+/am profile 1            load profile 1 (then reload)
+/am profile save 1       save the current setup into slot 1
+/am profile name 1 Raid  rename slot 1
+/am profile clear 1      empty slot 1
 /am probe        dumps GetAddOnInfo(1)'s raw return values, for diagnosing
                  field-order differences across client builds
 /am commands     lists how many slash commands were auto-discovered per addon

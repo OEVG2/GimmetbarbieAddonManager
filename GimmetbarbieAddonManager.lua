@@ -24,6 +24,8 @@
         /am              toggle the addon list window
         /am reload       reloads the UI (applies pending enable/disable changes)
         /am rescan       force a minimap-button collection pass
+        /am profile      list profile slots; /am profile 1 loads slot 1,
+                         /am profile save|name|clear 1 [name] manage it
         /am autoclose N  close the drawer after N seconds without the cursor
                          on it (default 5; "off" to keep it open)
 
@@ -308,6 +310,150 @@ function AM.ToggleAddonRow(row)
 end
 
 -- ---------------------------------------------------------------------------------------------
+-- Profiles: saved enable/disable sets (e.g. one for raiding)
+-- ---------------------------------------------------------------------------------------------
+-- AM_Profiles[slot] = { name = "Raid", states = { [addonFolderName] = true/false } }
+-- Keyed by folder name, not index, because indices shift when addons are added or
+-- removed. Addons installed after a profile was saved aren't in its states table,
+-- and loading the profile leaves them as they are.
+AM.PROFILE_SLOTS = 4
+
+function AM.GetProfile(slot)
+    AM_Profiles = AM_Profiles or {}
+    return AM_Profiles[slot]
+end
+
+function AM.ProfileName(slot)
+    local p = AM.GetProfile(slot)
+    if p and p.name and p.name ~= "" then return p.name end
+    return "Profile " .. slot
+end
+
+function AM.EnsureAddonList()
+    if table.getn(AM.addons) == 0 then AM.BuildAddonList() end
+end
+
+function AM.SaveProfile(slot)
+    AM.EnsureAddonList()
+    AM_Profiles = AM_Profiles or {}
+    local old = AM_Profiles[slot]
+    local states, count = {}, 0
+    for _, row in ipairs(AM.addons) do
+        states[row.name] = row.enabled and true or false
+        if row.enabled then count = count + 1 end
+    end
+    AM_Profiles[slot] = { name = old and old.name, states = states }
+    AM.Say("saved " .. AM.ProfileName(slot) .. " (" .. count .. " addons enabled).")
+    AM.RefreshWindow()
+end
+
+-- Applies a profile's enable/disable states. Like toggling by hand, this only
+-- takes effect after a reload. This addon is never disabled by a profile, so you
+-- can't lock yourself out of the manager.
+function AM.LoadProfile(slot, reloadNow)
+    local p = AM.GetProfile(slot)
+    if not p or not p.states then
+        AM.Say(AM.ProfileName(slot) .. " is empty. Shift+click its number to save the current setup into it.")
+        return
+    end
+    AM.EnsureAddonList()
+    local changed = 0
+    for _, row in ipairs(AM.addons) do
+        local want = p.states[row.name]
+        if row.name == AM.ADDON_NAME then want = true end
+        if want ~= nil and want ~= row.enabled then
+            if want then EnableAddOn(row.index) else DisableAddOn(row.index) end
+            row.enabled = want
+            changed = changed + 1
+        end
+    end
+    if changed > 0 then AM.pendingReload = true end
+    if reloadNow and (changed > 0 or AM.pendingReload) then
+        ReloadUI()
+        return
+    end
+    if changed == 0 then
+        AM.Say(AM.ProfileName(slot) .. " is already active.")
+    else
+        AM.Say("loaded " .. AM.ProfileName(slot) .. " (" .. changed .. " changes). Reload UI to apply.")
+    end
+    AM.RefreshWindow()
+end
+
+-- True when every addon the profile knows about is currently set the way the
+-- profile wants it.
+function AM.ProfileMatches(slot)
+    local p = AM.GetProfile(slot)
+    if not p or not p.states then return false end
+    for _, row in ipairs(AM.addons) do
+        local want = p.states[row.name]
+        if want ~= nil and row.name ~= AM.ADDON_NAME and want ~= row.enabled then
+            return false
+        end
+    end
+    return true
+end
+
+function AM.RenameProfile(slot, name)
+    AM_Profiles = AM_Profiles or {}
+    AM_Profiles[slot] = AM_Profiles[slot] or {}
+    if name == "" then name = nil end
+    AM_Profiles[slot].name = name
+    AM.Say("slot " .. slot .. " is now called " .. AM.ProfileName(slot) .. ".")
+    AM.RefreshWindow()
+end
+
+function AM.ClearProfile(slot)
+    AM_Profiles = AM_Profiles or {}
+    AM_Profiles[slot] = nil
+    AM.Say("cleared profile slot " .. slot .. ".")
+    AM.RefreshWindow()
+end
+
+function AM.UpdateProfileButtons()
+    local f = AM.mainFrame
+    if not f or not f.profileButtons then return end
+    for slot = 1, AM.PROFILE_SLOTS do
+        local btn = f.profileButtons[slot]
+        if not AM.GetProfile(slot) or not AM.GetProfile(slot).states then
+            btn:SetText("|cFF777777" .. slot .. "|r")   -- empty
+            btn:UnlockHighlight()
+        elseif AM.ProfileMatches(slot) then
+            btn:SetText("|cFF00FF7F" .. slot .. "|r")   -- current setup matches
+            btn:LockHighlight()
+        else
+            btn:SetText("|cFFFFFFFF" .. slot .. "|r")   -- saved, not active
+            btn:UnlockHighlight()
+        end
+    end
+end
+
+function AM.ShowProfileTooltip(btn)
+    local slot = btn.slot
+    local p = AM.GetProfile(slot)
+    GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
+    GameTooltip:SetText(AM.ProfileName(slot))
+    if p and p.states then
+        local on, off = 0, 0
+        for _, v in pairs(p.states) do
+            if v then on = on + 1 else off = off + 1 end
+        end
+        GameTooltip:AddLine(on .. " enabled, " .. off .. " disabled", 0.8, 0.8, 0.8)
+        if AM.ProfileMatches(slot) then
+            GameTooltip:AddLine("Matches your current setup", 0, 1, 0.5)
+        end
+        GameTooltip:AddLine("Click: load", 1, 1, 1)
+        GameTooltip:AddLine("Ctrl+click: load and reload now", 1, 1, 1)
+        GameTooltip:AddLine("Shift+click: overwrite with current setup", 1, 1, 1)
+    else
+        GameTooltip:AddLine("Empty", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine("Shift+click: save current setup here", 1, 1, 1)
+    end
+    GameTooltip:AddLine("/am profile name " .. slot .. " <name> to rename", 0.6, 0.6, 0.6)
+    GameTooltip:Show()
+end
+
+-- ---------------------------------------------------------------------------------------------
 -- Main window
 -- ---------------------------------------------------------------------------------------------
 function AM.CreateMainFrame()
@@ -376,7 +522,9 @@ function AM.CreateMainFrame()
     f.reloadBtn = reloadBtn
 
     local banner = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    banner:SetPoint("RIGHT", reloadBtn, "LEFT", -8, 0)
+    -- Sits at the right of the tab row; the space beside the Reload button now
+    -- holds the profile buttons.
+    banner:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -38)
     banner:SetTextColor(1, 0.5, 0.2)
     banner:SetText("")
     f.banner = banner
@@ -399,6 +547,31 @@ function AM.CreateMainFrame()
     end)
     filterBox:SetScript("OnEscapePressed", function() this:ClearFocus() end)
     f.filterBox = filterBox
+
+    -- Profile slots, between the filter box and the Reload button
+    f.profileButtons = {}
+    for slot = AM.PROFILE_SLOTS, 1, -1 do
+        local pb = CreateFrame("Button", "AM_ProfileBtn" .. slot, f, "UIPanelButtonTemplate")
+        pb:SetWidth(26); pb:SetHeight(22)
+        if slot == AM.PROFILE_SLOTS then
+            pb:SetPoint("RIGHT", reloadBtn, "LEFT", -12, 0)
+        else
+            pb:SetPoint("RIGHT", f.profileButtons[slot + 1], "LEFT", -3, 0)
+        end
+        pb.slot = slot
+        pb:SetText(slot)
+        pb:SetScript("OnClick", function()
+            if IsShiftKeyDown() then
+                AM.SaveProfile(this.slot)
+            else
+                AM.LoadProfile(this.slot, IsControlKeyDown())
+            end
+            AM.ShowProfileTooltip(this)
+        end)
+        pb:SetScript("OnEnter", function() AM.ShowProfileTooltip(this) end)
+        pb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        f.profileButtons[slot] = pb
+    end
 
     -- List area
     local listTop = -78
@@ -613,6 +786,9 @@ function AM.SetTab(tab)
 
     SetShown(f.filterLabel, isAddons)
     SetShown(f.filterBox, isAddons)
+    for slot = 1, AM.PROFILE_SLOTS do
+        SetShown(f.profileButtons[slot], isAddons)
+    end
     SetShown(f.pageLabel, isAddons or isSettings)
     SetShown(f.prevBtn, isAddons or isSettings)
     SetShown(f.nextBtn, isAddons or isSettings)
@@ -923,10 +1099,11 @@ function AM.RefreshWindow()
     if AM.activeTab ~= "enabled" and AM.activeTab ~= "disabled" then return end
 
     if AM.pendingReload then
-        f.banner:SetText("Changes need a reload to apply")
+        f.banner:SetText("Reload needed to apply")
     else
         f.banner:SetText("")
     end
+    AM.UpdateProfileButtons()
 
     local total = table.getn(AM.filtered)
     local maxPage = math.floor((total - 1) / AM.PAGE_SIZE)
@@ -1415,7 +1592,8 @@ end)
 -- ---------------------------------------------------------------------------------------------
 SLASH_ADDONMANAGER1 = "/am"
 SlashCmdList["ADDONMANAGER"] = function(msg)
-    msg = string.lower(msg or "")
+    local origMsg = msg or ""
+    msg = string.lower(origMsg)
     if msg == "reload" then
         ReloadUI()
     elseif msg == "rescan" then
@@ -1437,6 +1615,32 @@ SlashCmdList["ADDONMANAGER"] = function(msg)
                 AM.Say("drawer closes after " .. s .. "s without the cursor on it. " ..
                     "|cFFFFFFFF/am autoclose off|r to disable.")
             end
+        end
+    elseif string.find(msg, "^profile") then
+        local _, _, rest = string.find(msg, "^profile%s*(.*)$")
+        local _, _, verb, slot, extra = string.find(rest or "", "^(%a*)%s*(%d?)%s*(.*)$")
+        slot = tonumber(slot)
+        if verb == "" then verb = "load" end
+        if not slot or slot < 1 or slot > AM.PROFILE_SLOTS then
+            AM.Say("profiles: |cFFFFFFFF/am profile 1|r load, |cFFFFFFFF/am profile save 1|r, " ..
+                "|cFFFFFFFF/am profile name 1 Raid|r, |cFFFFFFFF/am profile clear 1|r (slots 1-" ..
+                AM.PROFILE_SLOTS .. ")")
+            for s = 1, AM.PROFILE_SLOTS do
+                local p = AM.GetProfile(s)
+                AM.Say("  " .. s .. ": " .. AM.ProfileName(s) .. ((p and p.states) and "" or " (empty)"))
+            end
+        elseif verb == "load" then
+            AM.LoadProfile(slot)
+        elseif verb == "save" then
+            AM.SaveProfile(slot)
+        elseif verb == "clear" then
+            AM.ClearProfile(slot)
+        elseif verb == "name" or verb == "rename" then
+            -- take the name from the original (un-lowercased) input
+            local _, _, orig = string.find(origMsg, "^%s*%a+%s+%a+%s+%d%s*(.*)$")
+            AM.RenameProfile(slot, orig or extra)
+        else
+            AM.Say("unknown profile command. Try |cFFFFFFFF/am profile|r.")
         end
     elseif msg == "probe" then
         AM.Probe()
