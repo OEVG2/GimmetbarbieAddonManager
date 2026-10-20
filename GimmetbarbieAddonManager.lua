@@ -24,6 +24,7 @@
         /am              toggle the addon list window
         /am reload       reloads the UI (applies pending enable/disable changes)
         /am rescan       force a minimap-button collection pass
+        /am resetbutton  put the addon's button back beside the minimap
         /am profile      list profile slots; /am profile 1 loads slot 1,
                          /am profile save|name|clear 1 [name] manage it
         /am autoclose N  close the drawer after N seconds without the cursor
@@ -1278,8 +1279,22 @@ end
 -- mostly-empty 6-wide box, and 16 get a clean 8x2 block instead of a lopsided
 -- 6-wide grid with a nearly-empty last row. Picks the fewest rows needed (capped at
 -- MAX_COLS wide) then spreads the icons evenly across those rows.
+-- How big a collected button actually draws, in the drawer's coordinates.
+-- Buttons come in different sizes (28-33px is common) and some addons scale
+-- theirs, so a fixed cell size let bigger ones spill over the drawer's border.
+local function ButtonVisualSize(btn)
+    local s = (btn.GetScale and btn:GetScale()) or 1
+    if not s or s <= 0 then s = 1 end
+    local w = (btn.GetWidth and btn:GetWidth()) or 0
+    local h = (btn.GetHeight and btn:GetHeight()) or 0
+    return math.max(w, h) * s, s
+end
+
 function AM.LayoutDrawer()
-    local pad, size = 4, 28
+    -- EDGE keeps icons clear of the tooltip border (about 4px of silver plus the
+    -- round minimap rings, which overhang their button slightly). GAP is the
+    -- space between neighbouring icons.
+    local EDGE, GAP = 7, 4
     local MAX_COLS = 8
     local count = table.getn(AM.collectedList)
 
@@ -1295,17 +1310,31 @@ function AM.LayoutDrawer()
     if rowsNeeded < 1 then rowsNeeded = 1 end
     local cols = math.ceil(count / rowsNeeded)
 
+    -- One cell size for the whole grid, big enough for the largest button.
+    local size = 28
+    for _, btn in ipairs(AM.collectedList) do
+        local v = ButtonVisualSize(btn)
+        if v > size then size = v end
+    end
+    size = math.ceil(size)
+
+    -- Each button is centred in its cell, so smaller ones sit evenly instead of
+    -- hugging the top-left corner. SetPoint offsets are in the button's own
+    -- scale, hence the division.
     local i = 0
     for _, btn in ipairs(AM.collectedList) do
         local col = math.mod(i, cols)
         local row = math.floor(i / cols)
+        local _, s = ButtonVisualSize(btn)
+        local cx = EDGE + col * (size + GAP) + size / 2
+        local cy = EDGE + row * (size + GAP) + size / 2
         btn:ClearAllPoints()
-        btn:SetPoint("TOPLEFT", AM.drawer, "TOPLEFT", pad + col * (size + pad), -(pad + row * (size + pad)))
+        btn:SetPoint("CENTER", AM.drawer, "TOPLEFT", cx / s, -cy / s)
         i = i + 1
     end
 
-    AM.drawer:SetWidth(pad + cols * (size + pad))
-    AM.drawer:SetHeight(pad + rowsNeeded * (size + pad))
+    AM.drawer:SetWidth(2 * EDGE + cols * size + (cols - 1) * GAP)
+    AM.drawer:SetHeight(2 * EDGE + rowsNeeded * size + (rowsNeeded - 1) * GAP)
 end
 
 -- Tries to collect one candidate frame; returns true if it was collected.
@@ -1368,6 +1397,7 @@ function AM.CreateDrawer()
     })
     d:SetBackdropColor(0, 0, 0, 0.8)
     d:SetFrameStrata("DIALOG")
+    d:SetClampedToScreen(true)
     d:Hide()
 
     local empty = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -1434,7 +1464,15 @@ function AM.ToggleDrawer()
         AM.drawer:Hide()
     else
         AM.drawer:ClearAllPoints()
-        AM.drawer:SetPoint("TOPRIGHT", AM.minimapButton, "BOTTOMLEFT", 0, -4)
+        -- The button can sit anywhere on screen now, so open the drawer toward
+        -- the middle of the screen rather than always down and to the left.
+        local bx, by = AM.minimapButton:GetCenter()
+        local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+        local vert, horiz, dy
+        if by and sh and by < sh / 2 then vert, dy = "BOTTOM", 4 else vert, dy = "TOP", -4 end
+        if bx and sw and bx < sw / 2 then horiz = "LEFT" else horiz = "RIGHT" end
+        local opposite = { TOP = "BOTTOM", BOTTOM = "TOP", LEFT = "RIGHT", RIGHT = "LEFT" }
+        AM.drawer:SetPoint(vert .. horiz, AM.minimapButton, opposite[vert] .. opposite[horiz], 0, dy)
         AM.drawer:Show()
         -- Full countdown from the moment it opens, rather than inheriting
         -- whatever the timer happened to be at when it last closed.
@@ -1443,8 +1481,10 @@ function AM.ToggleDrawer()
 end
 
 function AM.CreateMinimapButton()
-    local btn = CreateFrame("Button", "AM_MinimapButton", Minimap)
+    -- Parented to UIParent, not Minimap, so it can be placed anywhere on screen.
+    local btn = CreateFrame("Button", "AM_MinimapButton", UIParent)
     btn:SetWidth(31); btn:SetHeight(31)
+    btn:SetClampedToScreen(true)
     btn:SetFrameStrata("MEDIUM")
     btn:SetFrameLevel(8)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -1459,11 +1499,18 @@ function AM.CreateMinimapButton()
     border:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
-    -- Ctrl+Left-drag moves the button around the minimap ring. A plain
-    -- left-press no longer starts a drag, and the click that ends a Ctrl-drag
-    -- is swallowed so moving the button doesn't also open the drawer.
+    -- Ctrl+Left-drag moves the button freely around the screen. A plain
+    -- left-press doesn't start a drag, and the click that ends a Ctrl-drag is
+    -- swallowed so moving the button doesn't also open the drawer.
+    --
+    -- Moved by following the cursor rather than StartMoving(): StartMoving makes
+    -- the client store the position in its own layout cache too, which would
+    -- fight with the position this addon saves.
     btn:SetScript("OnMouseDown", function()
         if arg1 == "LeftButton" and IsControlKeyDown() then
+            local mx, my = AM.CursorInUIParent()
+            local cx, cy = this:GetCenter()
+            this.grabDX, this.grabDY = (cx or mx) - mx, (cy or my) - my
             this.dragging = true
             this.suppressClick = true
         end
@@ -1472,11 +1519,8 @@ function AM.CreateMinimapButton()
 
     btn:SetScript("OnUpdate", function()
         if this.dragging then
-            local mx, my = GetCursorPosition()
-            local scale = Minimap:GetEffectiveScale()
-            mx, my = mx / scale, my / scale
-            local cx, cy = Minimap:GetCenter()
-            AM_MinimapPos = math.deg(math.atan2(my - cy, mx - cx))
+            local mx, my = AM.CursorInUIParent()
+            AM_ButtonPos = { x = mx + (this.grabDX or 0), y = my + (this.grabDY or 0) }
             AM.UpdateMinimapButtonPos()
         end
     end)
@@ -1507,14 +1551,35 @@ function AM.CreateMinimapButton()
     AM.UpdateMinimapButtonPos()
 end
 
+function AM.CursorInUIParent()
+    local mx, my = GetCursorPosition()
+    local scale = UIParent:GetEffectiveScale()
+    return mx / scale, my / scale
+end
+
+-- AM_ButtonPos is the button's centre, measured from the bottom-left of the
+-- screen. Before this was saved the button lived on the minimap ring at angle
+-- AM_MinimapPos; the first time, it starts from that same spot so it doesn't
+-- jump somewhere unexpected after updating.
 function AM.UpdateMinimapButtonPos()
-    if not AM.minimapButton then return end
-    local angle = math.rad(AM_MinimapPos or 200)
-    local radius = (Minimap:GetWidth() / 2) + 10
-    local x = math.cos(angle) * radius
-    local y = math.sin(angle) * radius
-    AM.minimapButton:ClearAllPoints()
-    AM.minimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
+    local btn = AM.minimapButton
+    if not btn then return end
+    local mcx, mcy = Minimap:GetCenter()
+    if not AM_ButtonPos and not mcx then
+        -- Minimap not laid out (hidden by another addon, say): near the top-right.
+        AM_ButtonPos = { x = UIParent:GetWidth() - 60, y = UIParent:GetHeight() - 200 }
+    end
+    if not AM_ButtonPos then
+        local ms = Minimap:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        local angle = math.rad(AM_MinimapPos or 200)
+        local radius = (Minimap:GetWidth() / 2) + 10
+        AM_ButtonPos = {
+            x = (mcx + math.cos(angle) * radius) * ms,
+            y = (mcy + math.sin(angle) * radius) * ms,
+        }
+    end
+    btn:ClearAllPoints()
+    btn:SetPoint("CENTER", UIParent, "BOTTOMLEFT", AM_ButtonPos.x, AM_ButtonPos.y)
 end
 
 -- ---------------------------------------------------------------------------------------------
@@ -1596,6 +1661,11 @@ SlashCmdList["ADDONMANAGER"] = function(msg)
     msg = string.lower(origMsg)
     if msg == "reload" then
         ReloadUI()
+    elseif msg == "resetbutton" then
+        AM_ButtonPos = nil
+        AM_MinimapPos = nil
+        AM.UpdateMinimapButtonPos()
+        AM.Say("minimap button moved back beside the minimap.")
     elseif msg == "rescan" then
         AM.ScanMinimapButtons()
         AM.Say("rescanned minimap buttons.")

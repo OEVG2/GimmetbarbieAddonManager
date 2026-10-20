@@ -31,7 +31,8 @@ An in-game addon manager for WoW 1.12 (vanilla) clients that don't ship one of t
 - A single minimap icon collects other addons' stray minimap buttons into a flyout drawer, instead of leaving a dozen icons cluttering the ring.
   - **Left-click**: open/close the drawer.
   - **Right-click**: open the addon list.
-  - **Ctrl+Left-drag**: move the button around the minimap.
+  - **Ctrl+Left-drag**: move the button anywhere on screen (it isn't tied to the minimap ring). `/am resetbutton` puts it back beside the minimap.
+- The drawer sizes its grid cells to the largest collected button, so bigger icons and their round borders stay inside the drawer's frame. It opens toward the middle of the screen from wherever the button sits.
 - The drawer's grid shape scales with how many icons there actually are — a tight single row for 3 icons, a clean 8×2 block for 16, instead of a fixed-width grid that looks sparse or lopsided depending on count.
 - The **Settings** tab lists every icon currently in the drawer, with a **Release** button to put one back on the minimap if it doesn't belong there, and a **Recollect** button to undo that.
 
@@ -41,6 +42,7 @@ An in-game addon manager for WoW 1.12 (vanilla) clients that don't ship one of t
 /am              toggle the addon list window
 /am reload       reloads the UI (applies pending enable/disable changes)
 /am rescan       force a minimap-button collection pass
+/am resetbutton  put the addon's button back beside the minimap
 /am profile      list the profile slots
 /am profile 1            load profile 1 (then reload)
 /am profile save 1       save the current setup into slot 1
