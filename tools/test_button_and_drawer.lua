@@ -155,6 +155,37 @@ AM.LayoutDrawer()
 local gap = AM.collectedList[2]._points[1].x - AM.collectedList[1]._points[1].x
 check("neighbours don't overlap", gap >= 33, true)
 
+-- ---------------------------------------------------------------------------
+print("button matches the minimap's scale")
+boot({ buttonPos = { x = 500, y = 400 } })
+b = AM.minimapButton
+-- the shared stub ignores scale, so give the button a real one and a scaled minimap
+local bscale = 1
+b.SetScale = function(_, v) bscale = v end
+b.GetScale = function() return bscale end
+Minimap.GetEffectiveScale = function() return 1.25 end
+AM.UpdateMinimapButtonPos()
+check("button scale copies minimap scale", near(bscale, 1.25), true)
+local pt = b._points[1]
+check("anchor offset divided by scale (x)", near(pt.x * bscale, 500), true)
+check("anchor offset divided by scale (y)", near(pt.y * bscale, 400), true)
+-- GetCenter answers in scaled units; the addon converts back to screen units
+local ux, uy = AM.MinimapButtonCenter()
+check("centre reported in screen units", near(ux, 500 / 1.25 * 1.25) and near(uy, 400), true)
+-- minimap scale changes later (another addon): next 5s sweep picks it up
+Minimap.GetEffectiveScale = function() return 1.5 end
+AM.ScanMinimapButtons = function() end
+AM.UpdateDrawerAutoClose = function() end
+for _, f in ipairs(Stub.allFrames) do
+    if f._events and f._events.ADDON_LOADED then
+        f.initialScanDone = true
+        f.rescanTimer = 0
+        Stub.FireScript(f, "OnUpdate", nil, 5.1)
+    end
+end
+check("later minimap rescale is picked up", near(bscale, 1.5), true)
+check("and the button stays put on screen", near(b._points[1].x * bscale, 500), true)
+
 print("")
 if failures == 0 then
     print("all " .. checks .. " checks passed")

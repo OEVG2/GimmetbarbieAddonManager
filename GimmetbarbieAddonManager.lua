@@ -1466,7 +1466,7 @@ function AM.ToggleDrawer()
         AM.drawer:ClearAllPoints()
         -- The button can sit anywhere on screen now, so open the drawer toward
         -- the middle of the screen rather than always down and to the left.
-        local bx, by = AM.minimapButton:GetCenter()
+        local bx, by = AM.MinimapButtonCenter()
         local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
         local vert, horiz, dy
         if by and sh and by < sh / 2 then vert, dy = "BOTTOM", 4 else vert, dy = "TOP", -4 end
@@ -1509,7 +1509,7 @@ function AM.CreateMinimapButton()
     btn:SetScript("OnMouseDown", function()
         if arg1 == "LeftButton" and IsControlKeyDown() then
             local mx, my = AM.CursorInUIParent()
-            local cx, cy = this:GetCenter()
+            local cx, cy = AM.MinimapButtonCenter()
             this.grabDX, this.grabDY = (cx or mx) - mx, (cy or my) - my
             this.dragging = true
             this.suppressClick = true
@@ -1551,6 +1551,27 @@ function AM.CreateMinimapButton()
     AM.UpdateMinimapButtonPos()
 end
 
+-- The button used to be a child of the minimap, so it inherited the minimap's
+-- scale (the game's minimap scale option, or addons that enlarge the minimap).
+-- Now it hangs off UIParent, so copy that scale to keep it the same size as the
+-- other minimap icons.
+function AM.MinimapButtonScale()
+    local ui = UIParent:GetEffectiveScale()
+    local mm = Minimap:GetEffectiveScale()
+    if not ui or ui <= 0 or not mm or mm <= 0 then return 1 end
+    return mm / ui
+end
+
+-- The button's centre in UIParent coordinates. GetCenter() on a scaled frame
+-- answers in that frame's own (scaled) units, hence the multiplication.
+function AM.MinimapButtonCenter()
+    local btn = AM.minimapButton
+    local x, y = btn:GetCenter()
+    if not x then return nil end
+    local s = btn:GetScale() or 1
+    return x * s, y * s
+end
+
 function AM.CursorInUIParent()
     local mx, my = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()
@@ -1578,8 +1599,12 @@ function AM.UpdateMinimapButtonPos()
             y = (mcy + math.sin(angle) * radius) * ms,
         }
     end
+    -- SetPoint offsets are in the button's own scale, so divide the saved
+    -- UIParent-space position by it.
+    local scale = AM.MinimapButtonScale()
+    btn:SetScale(scale)
     btn:ClearAllPoints()
-    btn:SetPoint("CENTER", UIParent, "BOTTOMLEFT", AM_ButtonPos.x, AM_ButtonPos.y)
+    btn:SetPoint("CENTER", UIParent, "BOTTOMLEFT", AM_ButtonPos.x / scale, AM_ButtonPos.y / scale)
 end
 
 -- ---------------------------------------------------------------------------------------------
@@ -1648,6 +1673,12 @@ ev:SetScript("OnUpdate", function()
     ev.rescanTimer = ev.rescanTimer + arg1
     if ev.rescanTimer >= 5 then
         ev.rescanTimer = 0
+        -- Addons that enlarge the minimap may do it after this one loaded, or the
+        -- minimap scale option may have changed: keep the button's size in step.
+        local b = AM.minimapButton
+        if b and not b.dragging and math.abs((b:GetScale() or 1) - AM.MinimapButtonScale()) > 0.001 then
+            AM.UpdateMinimapButtonPos()
+        end
         AM.ScanMinimapButtons()
     end
 end)
